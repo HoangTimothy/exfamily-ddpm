@@ -79,9 +79,16 @@ class Attend(nn.Module):
 
         q, k, v = map(lambda t: t.contiguous(), (q, k, v))
 
-        # Check if there is a compatible device for flash attention
-
-        config = self.cuda_config if is_cuda else self.cpu_config
+        # PyTorch scaled_dot_product_attention only works reliably with float16/bfloat16
+        # If tensors are float32, fall back to math attention to avoid kernel errors
+        if q.dtype == torch.float32:
+            print_once('float32 detected, falling back to math attention (flash-attn requires float16/bfloat16)')
+            scale = default(self.scale, q.shape[-1] ** -0.5)
+            sim = einsum(f"b h i d, b h j d -> b h i j", q, k) * scale
+            attn = sim.softmax(dim = -1)
+            attn = self.attn_dropout(attn)
+            out = einsum(f"b h i j, b h j d -> b h i d", attn, v)
+            return out
 
         # pytorch 2.0 flash attn: q, k, v, mask, dropout, causal, softmax_scale
 
@@ -90,10 +97,9 @@ class Attend(nn.Module):
                 q, k, v,
                 dropout_p = self.dropout if self.training else 0.
             )
-        except (RuntimeError, ValueError) as e:
-            # fallback to math attention if no kernel available
-            # (e.g., float32 tensors when flash/mem-efficient kernels require float16/bfloat16)
-            print_once(f'SDPA kernel unavailable ({str(e)[:80]}...), falling back to math attention')
+        except Exception as e:
+            # fallback to math attention for any error
+            print_once(f'SDPA failed ({type(e).__name__}), falling back to math attention')
             scale = default(self.scale, q.shape[-1] ** -0.5)
             sim = einsum(f"b h i d, b h j d -> b h i j", q, k) * scale
             attn = sim.softmax(dim = -1)
