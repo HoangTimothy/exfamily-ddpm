@@ -2,17 +2,49 @@
 
 ## Option 3 Implementation (Model FP16 + Buffers FP32)
 
-### Quick Test (100 steps - ~1 minute)
-```bash
-python train_test_quick.py
-```
+### Important: Two Approaches
 
-This runs:
-- 100 training steps (vs 20000)
-- Checkpoint every 20 steps (5 total checkpoints)
-- FID disabled (to avoid long sampling)
-- flash_attn=False (safest for testing)
-- Results in `./results_test`
+**Approach 3a: Model FP16 WITHOUT Autocast (Simplest)**
+```python
+model = Unet(..., flash_attn=False)
+model = model.half()  # Convert weights to fp16
+
+trainer = Trainer(
+    diffusion,
+    ...,
+    amp=False  # MUST disable amp (no GradScaler) when using model.half()
+)
+trainer.train()
+```
+- ✅ Simplest: just `model.half()` + `amp=False`
+- ✅ Works reliably
+- ❌ No autocast optimization (slightly slower training)
+
+**Approach 3b: Model FP32 WITH Autocast (Standard)**
+```python
+model = Unet(..., flash_attn=False)  # stays fp32
+
+trainer = Trainer(
+    diffusion,
+    ...,
+    amp=True,  # Enable autocast (Accelerate handles it)
+    mixed_precision_type='fp16'
+)
+trainer.train()
+```
+- ✅ Autocast optimizes forward (faster)
+- ✅ Gradients stay fp32 (stable)
+- ✅ Recommended for production
+- ❌ Slightly more complex
+
+**Comparison:**
+| Aspect      | 3a (model.half)      | 3b (autocast)             |
+| ----------- | -------------------- | ------------------------- |
+| Memory      | Lower (fp16 weights) | Normal (fp32 weights)     |
+| Speed       | Medium               | Faster (autocast forward) |
+| Stability   | Stable               | Very stable               |
+| Complexity  | Simple               | Medium                    |
+| Recommended | Quick testing        | Production                |
 
 ### Full Training (20000 steps)
 ```bash
