@@ -83,11 +83,7 @@ class Attend(nn.Module):
         # If tensors are float32, fall back to math attention to avoid kernel errors
         if q.dtype == torch.float32:
             print_once('float32 detected, falling back to einsum attention')
-            scale = default(self.scale, q.shape[-1] ** -0.5)
-            sim = einsum(f"b h i d, b h j d -> b h i j", q, k) * scale
-            attn = sim.softmax(dim=-1)
-            out = einsum(f"b h i j, b h j d -> b h i d", attn, v)
-            return out
+            return self._einsum_attention(q, k, v)
 
         # pytorch 2.0 flash attn: try scaled_dot_product_attention with fp16/bf16
         try:
@@ -98,12 +94,26 @@ class Attend(nn.Module):
         except Exception as e:
             # fallback to einsum for any error
             print_once(f'SDPA failed, falling back to einsum: {type(e).__name__}')
-            scale = default(self.scale, q.shape[-1] ** -0.5)
+            return self._einsum_attention(q, k, v)
+
+        return out
+    
+    def _einsum_attention(self, q, k, v):
+        """Robust einsum attention with error handling"""
+        scale = default(self.scale, q.shape[-1] ** -0.5)
+        
+        try:
             sim = einsum(f"b h i d, b h j d -> b h i j", q, k) * scale
             attn = sim.softmax(dim=-1)
             out = einsum(f"b h i j, b h j d -> b h i d", attn, v)
-
-        return out
+            return out
+        except RuntimeError as e:
+            # Last resort: use torch matmul (slowest but most reliable)
+            print_once(f'Einsum failed ({type(e).__name__}), using matmul fallback')
+            sim = torch.matmul(q, k.transpose(-2, -1)) * scale
+            attn = sim.softmax(dim=-1)
+            out = torch.matmul(attn, v)
+            return out
 
     def forward(self, q, k, v):
         """
