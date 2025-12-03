@@ -86,7 +86,7 @@ class Attend(nn.Module):
             scale = default(self.scale, q.shape[-1] ** -0.5)
             sim = einsum(f"b h i d, b h j d -> b h i j", q, k) * scale
             attn = sim.softmax(dim = -1)
-            attn = self.attn_dropout(attn)
+            # skip dropout in fallback to avoid kernel issues
             out = einsum(f"b h i j, b h j d -> b h i d", attn, v)
             return out
 
@@ -103,7 +103,7 @@ class Attend(nn.Module):
             scale = default(self.scale, q.shape[-1] ** -0.5)
             sim = einsum(f"b h i d, b h j d -> b h i j", q, k) * scale
             attn = sim.softmax(dim = -1)
-            attn = self.attn_dropout(attn)
+            # skip dropout in fallback to avoid kernel issues
             out = einsum(f"b h i j, b h j d -> b h i d", attn, v)
 
         return out
