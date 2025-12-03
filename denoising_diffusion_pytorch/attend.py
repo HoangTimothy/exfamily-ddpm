@@ -82,28 +82,25 @@ class Attend(nn.Module):
         # PyTorch scaled_dot_product_attention only works reliably with float16/bfloat16
         # If tensors are float32, fall back to math attention to avoid kernel errors
         if q.dtype == torch.float32:
-            print_once('float32 detected, falling back to math attention (flash-attn requires float16/bfloat16)')
+            print_once('float32 detected, falling back to einsum attention')
             scale = default(self.scale, q.shape[-1] ** -0.5)
             sim = einsum(f"b h i d, b h j d -> b h i j", q, k) * scale
-            attn = sim.softmax(dim = -1)
-            # skip dropout in fallback to avoid kernel issues
+            attn = sim.softmax(dim=-1)
             out = einsum(f"b h i j, b h j d -> b h i d", attn, v)
             return out
 
-        # pytorch 2.0 flash attn: q, k, v, mask, dropout, causal, softmax_scale
-
+        # pytorch 2.0 flash attn: try scaled_dot_product_attention with fp16/bf16
         try:
             out = F.scaled_dot_product_attention(
                 q, k, v,
-                dropout_p = self.dropout if self.training else 0.
+                dropout_p=self.dropout if self.training else 0.
             )
         except Exception as e:
-            # fallback to math attention for any error
-            print_once(f'SDPA failed ({type(e).__name__}), falling back to math attention')
+            # fallback to einsum for any error
+            print_once(f'SDPA failed, falling back to einsum: {type(e).__name__}')
             scale = default(self.scale, q.shape[-1] ** -0.5)
             sim = einsum(f"b h i d, b h j d -> b h i j", q, k) * scale
-            attn = sim.softmax(dim = -1)
-            # skip dropout in fallback to avoid kernel issues
+            attn = sim.softmax(dim=-1)
             out = einsum(f"b h i j, b h j d -> b h i d", attn, v)
 
         return out
