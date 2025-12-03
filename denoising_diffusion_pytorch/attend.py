@@ -86,15 +86,13 @@ class Attend(nn.Module):
         # pytorch 2.0 flash attn: q, k, v, mask, dropout, causal, softmax_scale
 
         try:
-            with torch.nn.attention.sdpa_kernel(**config._asdict()):
-                out = F.scaled_dot_product_attention(
-                    q, k, v,
-                    dropout_p = self.dropout if self.training else 0.
-                )
+            out = F.scaled_dot_product_attention(
+                q, k, v,
+                dropout_p = self.dropout if self.training else 0.
+            )
         except (RuntimeError, ValueError) as e:
             # fallback to math attention if no kernel available
             # (e.g., float32 tensors when flash/mem-efficient kernels require float16/bfloat16)
-            # or if sdpa_kernel config itself fails
             print_once(f'SDPA kernel unavailable ({str(e)[:80]}...), falling back to math attention')
             scale = default(self.scale, q.shape[-1] ** -0.5)
             sim = einsum(f"b h i d, b h j d -> b h i j", q, k) * scale
