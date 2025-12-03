@@ -1,11 +1,9 @@
 """
 Quick test script with reduced steps for debugging.
-Train only 100 steps (5 FID checkpoints) instead of 20000.
+Train only 100 steps (~1 minute) instead of 20000.
 
-Options:
-- Use model.half() WITHOUT amp (amp=False)
-  OR
-- Use model as fp32 WITH amp (amp=True, autocast forward)
+Uses Approach 3b: Model stays FP32, autocast forward only.
+This is simpler and more stable than model.half().
 """
 
 import torch
@@ -18,9 +16,8 @@ model = Unet(
     flash_attn=False  # Safest for testing
 )
 
-# Option 3a: Model FP16 WITHOUT autocast (GradScaler)
-# When using model.half(), must set amp=False (no GradScaler)
-model = model.half()
+# Model stays fp32 (recommended approach)
+# Autocast will optimize forward pass to fp16 where beneficial
 
 diffusion = GaussianDiffusion(
     model,
@@ -35,11 +32,12 @@ trainer = Trainer(
     train_num_steps=100,  # Very short for testing
     save_and_sample_every=20,  # Checkpoint every 20 steps
     calculate_fid=False,  # Disable FID to speed up testing
-    amp=False,  # IMPORTANT: disable amp when model is fp16
+    amp=True,  # Enable autocast for forward pass
+    mixed_precision_type='fp16',
     num_samples=4,  # Minimal samples
     results_folder='./results_test'
 )
 
-print("Starting quick test training (100 steps, model fp16, no amp)...")
+print("Starting quick test training (100 steps, model fp32, autocast forward)...")
 trainer.train()
 print("Test complete!")
